@@ -28,6 +28,7 @@ class RealtimeService {
       if (this.ws) {
         try { this.ws.close(); } catch (e) { /* ignore */ }
       }
+      console.info('[realtime] connecting to', target);
       this.ws = new WebSocket(target);
     } catch (e) {
       console.error('[realtime] failed to create WebSocket', e);
@@ -48,6 +49,7 @@ class RealtimeService {
     this.ws.addEventListener('message', (ev) => {
       try {
         const msg: IncomingMessage = JSON.parse((ev.data as string) || '');
+        console.debug('[realtime] received', msg);
         if (msg.type === 'ACTION') {
           this.actionCbs.forEach(cb => cb(msg.payload));
         } else if (msg.type === 'LOGIN_SUCCESS') {
@@ -102,6 +104,7 @@ class RealtimeService {
   private _sendNow(msg: IncomingMessage) {
     if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return;
     try {
+      console.debug('[realtime] send', msg);
       this.ws.send(JSON.stringify(msg));
     } catch (e) { console.warn('[realtime] send failed', e); }
   }

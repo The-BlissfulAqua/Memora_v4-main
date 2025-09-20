@@ -221,14 +221,9 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   const appliedRemoteActions = useRef(new Set<string>());
 
   useEffect(() => {
-    // If demo realtime URL is provided via global, connect automatically for presentations.
-    const wsUrl = (window as any).__DEMO_REALTIME_URL as string | undefined;
-    if (!wsUrl) return;
-
-    realtimeService.connect(wsUrl);
-
-    // Register incoming actions to apply remotely
-    realtimeService.onAction((action: any) => {
+    // Always register incoming actions so AppContext can apply remote actions
+    // even if the websocket is connected later (for example via the LoginPage).
+    const unsubscribe = realtimeService.onAction((action: any) => {
       try {
         // Ignore if it's already applied (simple dedupe using an id)
         const rid = action?._remoteId;
@@ -241,7 +236,15 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       }
     });
 
+    // If a global demo realtime URL is present at mount, connect now.
+    const wsUrl = (window as any).__DEMO_REALTIME_URL as string | undefined;
+    if (wsUrl) {
+      realtimeService.connect(wsUrl);
+    }
+
     return () => {
+      // Clean up subscription and disconnect the service
+      try { unsubscribe(); } catch (e) { /* ignore */ }
       realtimeService.disconnect();
     };
   }, []);
