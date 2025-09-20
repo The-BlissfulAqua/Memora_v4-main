@@ -152,7 +152,8 @@ Follow these steps to package the web app into a native Android APK file that yo
 In your project's root directory, run the following commands to add Capacitor's command-line tool (CLI), core library, and the Android platform library.
 
 ```bash
-npm install @capacitor/cli @capacitor/core @capacitor/android
+# Recommended: install Capacitor v7 to match the project's dependencies
+npm install @capacitor/cli@^7.4.3 @capacitor/core@^7.4.3 @capacitor/android@^7.4.3
 ```
 
 ### 2. Add the Android Platform
