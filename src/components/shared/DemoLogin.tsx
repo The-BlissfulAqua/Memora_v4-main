@@ -24,8 +24,8 @@ const DemoLogin: React.FC = () => {
     try {
       // make it available globally so AppContext picks it up
       (window as any).__DEMO_REALTIME_URL = url;
-      realtimeService.connect(url);
-  realtimeService.login(username, password, 'demo');
+    realtimeService.connect(url);
+    realtimeService.login(username, password, 'demo', role as any);
       setConnected(true);
       // Dispatch a local login success for demo purposes
   dispatch({ type: 'LOGIN_SUCCESS', payload: { username, role } });
