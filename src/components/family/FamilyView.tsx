@@ -1,4 +1,3 @@
-import NotificationSound from '../shared/NotificationSound';
 // Helper to check if a reminder is due
 function isReminderDue(reminderTime: string) {
     const now = new Date();
@@ -37,14 +36,8 @@ const FamilyView: React.FC = () => {
     const { state, dispatch } = useAppContext();
     const { reminders, alerts, eventLog, voiceMessages } = state;
 
-        // Find the first due and unnotified reminder
-        const dueReminder = reminders.find((r: any) => !r.completed && !r.notified && isReminderDue(r.time));
-
-        useEffect(() => {
-            if (dueReminder) {
-                dispatch({ type: 'MARK_REMINDER_NOTIFIED', payload: dueReminder.id });
-            }
-        }, [dueReminder, dispatch]);
+        // Family view should not auto-mark reminders or play reminder audio.
+        // Reminder playback/notification is handled on the Patient view only.
 
     const [imageUrl, setImageUrl] = useState('');
     const [caption, setCaption] = useState('');
@@ -167,8 +160,7 @@ const FamilyView: React.FC = () => {
         <p className="text-md text-slate-400">Stay connected with your loved one</p>
       </header>
       
-    {/* Play notification sound if a reminder is due */}
-    <NotificationSound trigger={!!dueReminder} />
+    {/* Reminder audio and visible notifications handled on Patient view only */}
     {unacknowledgedAlerts.length > 0 && (
         <div className="p-4 bg-red-800/50 border-2 border-red-500 rounded-xl shadow-lg animate-pulse">
             <h2 className="text-xl font-bold text-white text-center mb-2">URGENT ALERT RECEIVED</h2>

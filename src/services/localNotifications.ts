@@ -11,7 +11,8 @@ const requestPermission = async (): Promise<NotifyPermission> => {
     try {
       // dynamic import to avoid bundler issues
       // eslint-disable-next-line @typescript-eslint/no-var-requires
-      const { LocalNotifications } = require('@capacitor/local-notifications');
+  const mod: any = await import('@capacitor/local-notifications');
+  const LocalNotifications = mod.LocalNotifications || mod;
       // Some native platforms require a runtime request
       if (LocalNotifications && typeof LocalNotifications.requestPermission === 'function') {
         const granted = await LocalNotifications.requestPermission();
@@ -35,21 +36,61 @@ const requestPermission = async (): Promise<NotifyPermission> => {
   return 'denied';
 };
 
-const schedule = async (opts: { id?: number; title: string; body?: string; scheduleAt?: Date }) => {
+const schedule = async (opts: { id?: number; title: string; body?: string; scheduleAt?: Date; extra?: any }) => {
   if (isNative) {
     try {
-      const { LocalNotifications } = require('@capacitor/local-notifications');
+      const mod: any = await import('@capacitor/local-notifications');
+      const LocalNotifications = mod.LocalNotifications || mod;
       const scheduleAt = opts.scheduleAt || new Date();
-      await LocalNotifications.schedule({
-        notifications: [
-          {
-            id: opts.id || Date.now(),
-            title: opts.title,
-            body: opts.body || '',
-            schedule: { at: scheduleAt },
-          },
-        ],
-      } as any);
+      // Use action buttons when running natively so users can Complete/Snooze/Dismiss
+      const notifications: any[] = [
+        {
+          id: opts.id || Date.now(),
+          title: opts.title,
+          body: opts.body || '',
+          schedule: { at: scheduleAt },
+          // Use extra data to carry reminder info so action handler can map actions
+          extra: opts.extra || { reminderId: opts.id || Date.now() },
+        },
+      ];
+
+      // Try registering actions (Android supports actions; iOS support may differ)
+      try {
+  await LocalNotifications.registerActionTypes({
+          types: [
+            {
+              id: 'REMINDER_ACTIONS',
+              actions: [
+                { id: 'COMPLETE', title: 'Complete' },
+                { id: 'SNOOZE', title: 'Snooze 5m' },
+                { id: 'DISMISS', title: 'Dismiss' },
+              ],
+            },
+          ],
+        } as any);
+        // Attach the action type id to our notification
+        notifications[0].actionTypeId = 'REMINDER_ACTIONS';
+      } catch (e) {
+        console.warn('Failed to register native notification actions', e);
+      }
+
+  await LocalNotifications.schedule({ notifications } as any);
+      // Listen for action events and forward them to a global handler if present
+      try {
+        LocalNotifications.addListener && LocalNotifications.addListener('localNotificationActionPerformed', (event: any) => {
+          try {
+            const actionId = event.actionId;
+            const data = event.notification?.extra || event.notification?.data || {};
+            if ((window as any).__ON_NOTIFICATION_ACTION) {
+              (window as any).__ON_NOTIFICATION_ACTION({ actionId, data });
+            }
+          } catch (e) {
+            console.warn('Error handling local notification action', e);
+          }
+        });
+      } catch (e) {
+        // ignore listener registration failures
+      }
       return true;
     } catch (e) {
       console.warn('LocalNotifications.schedule failed', e);

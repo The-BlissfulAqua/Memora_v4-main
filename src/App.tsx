@@ -9,6 +9,7 @@ import localNotifications from './services/localNotifications';
 import DemoLogin from './components/shared/DemoLogin';
 import LoginPage from './components/shared/LoginPage';
 import AcknowledgeModal from './components/shared/AcknowledgeModal';
+import ReminderBanner from './components/shared/ReminderBanner';
 // ReminderBanner removed per user's request: do not show upcoming reminders
 
 const App: React.FC = () => {
@@ -58,11 +59,11 @@ const App: React.FC = () => {
     // authoritative for whether alerts should play. Only fall back to the logged-in user's role
     // when the view is the default PATIENT view. This ensures switching the dashboard via the
     // master switch immediately updates audio behaviour.
+  // Use the currently selected dashboard view as the authoritative role for alert audio.
+  // This ensures switching the dashboard to PATIENT immediately silences caregiver/family alerts.
   const loggedRole = state.currentUser?.role?.toUpperCase?.();
   const viewRole = state.currentView === 'CAREGIVER' ? 'CAREGIVER' : state.currentView === 'FAMILY' ? 'FAMILY' : 'PATIENT';
-  // Prefer the viewRole unless it is PATIENT, in which case a logged-in caregiver/family
-  // should still be able to hear alerts.
-  const effectiveRole = viewRole !== 'PATIENT' ? viewRole : (loggedRole || viewRole);
+  const effectiveRole = viewRole; // view is authoritative
   const canHear = effectiveRole === 'CAREGIVER' || effectiveRole === 'FAMILY';
   console.debug('[App] alert-effect', { effectiveRole, viewRole, loggedRole, canHear, devMode: state.devMode, unackCount: unack.length, alerts: unack.map(a => ({ id: a.id, type: a.type })) });
 
@@ -135,6 +136,34 @@ const App: React.FC = () => {
       })();
     }
   }, [state.currentUser]);
+
+  // Global handler for native notification actions (registered by localNotifications)
+  useEffect(() => {
+    (window as any).__ON_NOTIFICATION_ACTION = ({ actionId, data }: any) => {
+      try {
+        const reminderId = data?.reminderId;
+        if (!reminderId) return;
+        if (actionId === 'COMPLETE') {
+          dispatch({ type: 'COMPLETE_REMINDER', payload: reminderId });
+          dispatch({ type: 'MARK_REMINDER_NOTIFIED', payload: reminderId });
+        } else if (actionId === 'SNOOZE') {
+          // Add a new reminder 5 minutes from now, and mark this one notified
+          const now = new Date();
+          now.setMinutes(now.getMinutes() + 5);
+          const hh = now.getHours().toString().padStart(2, '0');
+          const mm = now.getMinutes().toString().padStart(2, '0');
+          const newTime = `${hh}:${mm}`;
+          dispatch({ type: 'ADD_REMINDER', payload: { id: new Date().toISOString(), title: data.title || 'Snoozed Reminder', time: newTime, notified: false, completed: false, icon: 'medication' } });
+          dispatch({ type: 'MARK_REMINDER_NOTIFIED', payload: reminderId });
+        } else if (actionId === 'DISMISS') {
+          dispatch({ type: 'MARK_REMINDER_NOTIFIED', payload: reminderId });
+        }
+      } catch (e) {
+        console.warn('Error handling notification action in app', e);
+      }
+    };
+    return () => { (window as any).__ON_NOTIFICATION_ACTION = undefined; };
+  }, [dispatch]);
 
 
   // Effect for checking reminders
@@ -244,7 +273,8 @@ const App: React.FC = () => {
     }
   }
 
-  const canShowMasterSwitch = !!state.currentUser || !!state.devMode;
+  // Master switch should only be visible in dev mode (explicitly enabled).
+  const canShowMasterSwitch = !!state.devMode;
 
   const [showLogin, setShowLogin] = React.useState(false);
   const [showAckForAlertId, setShowAckForAlertId] = React.useState<string | null>(null);
@@ -255,6 +285,10 @@ const App: React.FC = () => {
       <div className="absolute top-4 right-4 z-50 flex items-center gap-3">
         {/* Connection status dot */}
         <div className={`w-3 h-3 rounded-full ${realtimeDotClass(state.currentUser)} ${state.devMode ? 'ring-2 ring-yellow-400' : ''}`} title={state.currentUser ? 'Connected' : 'Not connected'} />
+        {/* Demo login/control panel */}
+        <div className="ml-2">
+          <DemoLogin />
+        </div>
         {canShowMasterSwitch && (
           <button
             onClick={handleSwitchView}
@@ -281,8 +315,11 @@ const App: React.FC = () => {
       })()}
 
       {showAckForAlertId && (() => {
+        // Only show the acknowledge modal to caregiver or family dashboard views.
         const a = state.alerts.find(x => x.id === showAckForAlertId);
         if (!a) return null;
+        const viewRole = state.currentView === 'CAREGIVER' ? 'CAREGIVER' : state.currentView === 'FAMILY' ? 'FAMILY' : 'PATIENT';
+        if (viewRole === 'PATIENT') return null;
         return (
           <AcknowledgeModal
             alertId={a.id}
@@ -292,6 +329,20 @@ const App: React.FC = () => {
         );
       })()}
       {/* No bannerReminder UI; notifications only fire at exact time */}
+      {/* Show in-app persistent banner on Patient view when a reminder is due */}
+      {viewMode === ViewMode.PATIENT && (() => {
+        const due = state.reminders.find((r: any) => !r.completed && !r.notified && (() => {
+          const now = new Date();
+          const [h, m] = r.time.split(':');
+          const reminderDate = new Date(now);
+          reminderDate.setHours(Number(h), Number(m), 0, 0);
+          return now >= reminderDate;
+        })());
+        if (due) {
+          return <ReminderBanner reminder={due} status="due" />;
+        }
+        return null;
+      })()}
       
       <div className="container mx-auto max-w-lg p-2 sm:p-4">
         {renderView()}

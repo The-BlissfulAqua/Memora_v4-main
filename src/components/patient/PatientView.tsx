@@ -1,4 +1,4 @@
-import ReminderNotification from './ReminderNotification';
+// ReminderNotification removed: persistent ReminderBanner in App.tsx handles due reminders for Patient view
 import React, { useState, useEffect } from 'react';
 import PatientHome from './PatientHome';
 import ARNavigation from './ARNavigation';
@@ -75,7 +75,6 @@ const PatientView: React.FC = () => {
 
   return (
     <div className="w-full h-full">
-      <ReminderNotification />
       {renderScreen()}
     </div>
   );

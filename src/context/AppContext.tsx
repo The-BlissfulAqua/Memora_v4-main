@@ -183,15 +183,13 @@ const appReducer = (state: AppState, action: AppActionAll): AppState => {
             ),
         };
     case 'LOGIN_SUCCESS':
-      // Auto-switch view based on the logged-in user's role if present
-      const role = (action.payload as CurrentUser)?.role?.toUpperCase?.();
-      let view = ViewMode.PATIENT;
-      if (role === 'CAREGIVER') view = ViewMode.CAREGIVER;
-      if (role === 'FAMILY') view = ViewMode.FAMILY;
+      // Record the logged-in user but do NOT auto-switch the current view.
+      // The UI should present a dashboard selector after demo login and then
+      // dispatch 'SET_VIEW_MODE' explicitly. This keeps behavior consistent
+      // when using the demo selector to choose which dashboard to open.
       return {
         ...state,
         currentUser: action.payload,
-        currentView: view,
       };
     case 'LOGOUT':
       return {

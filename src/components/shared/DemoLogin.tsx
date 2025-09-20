@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import realtimeService from '../../services/realtimeService';
 import { useAppContext } from '../../context/AppContext';
+import DashboardSelectorModal from './DashboardSelectorModal';
 
 // Simple DemoLogin that also dispatches LOGIN_SUCCESS into AppContext
 
@@ -12,6 +13,7 @@ const DemoLogin: React.FC = () => {
   const [connected, setConnected] = useState(false);
   const { dispatch } = useAppContext();
   const [devMode, setDevMode] = useState(false);
+  const [showSelector, setShowSelector] = useState(false);
 
   useEffect(() => {
     // initialize from service state
@@ -29,6 +31,9 @@ const DemoLogin: React.FC = () => {
       setConnected(true);
       // Dispatch a local login success for demo purposes
   dispatch({ type: 'LOGIN_SUCCESS', payload: { username, role } });
+  // Instead of auto-switching the view, show the dashboard selector so the user
+  // can pick which dashboard to open on this device.
+  setShowSelector(true);
     } catch (e) {
       console.error('Failed to connect to demo server', e);
       setConnected(false);
@@ -67,6 +72,7 @@ const DemoLogin: React.FC = () => {
         )}
       </div>
       <button onClick={toggleDevMode} className="absolute top-1 right-1 text-xs px-2 py-1 rounded bg-slate-800/70">Dev</button>
+      {showSelector && <DashboardSelectorModal onClose={() => setShowSelector(false)} />}
     </div>
   );
 };
