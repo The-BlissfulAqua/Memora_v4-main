@@ -6,8 +6,8 @@ import { ViewMode } from './types';
 import { useAppContext } from './context/AppContext';
 import soundService from './services/soundService';
 import localNotifications from './services/localNotifications';
-import DemoLogin from './components/shared/DemoLogin';
 import LoginPage from './components/shared/LoginPage';
+import DashboardSelectorModal from './components/shared/DashboardSelectorModal';
 import AcknowledgeModal from './components/shared/AcknowledgeModal';
 import ReminderBanner from './components/shared/ReminderBanner';
 // ReminderBanner removed per user's request: do not show upcoming reminders
@@ -47,9 +47,15 @@ const App: React.FC = () => {
   }, []);
 
   // Expose a global helper so PatientHome can open the login modal without prop drilling
+  // Expose a global helper so PatientHome can open the login modal without prop drilling
+  // NOTE: this effect is defined after the `showLogin` state is declared further down to
+  // avoid referencing the setter before it's initialized (which would cause a runtime crash).
+
+  const [showDashboardSelector, setShowDashboardSelector] = useState(false);
+  // Expose a global opener so login page can close and then open the selector (ensures selector is on top)
   useEffect(() => {
-    (window as any).openLoginModal = () => setShowLogin(true);
-    return () => { (window as any).openLoginModal = undefined; };
+    (window as any).openDashboardSelector = () => setShowDashboardSelector(true);
+    return () => { (window as any).openDashboardSelector = undefined; };
   }, []);
 
   // Centralized alert sound control: only play alerts for caregiver/family or when in devMode.
@@ -279,16 +285,19 @@ const App: React.FC = () => {
   const [showLogin, setShowLogin] = React.useState(false);
   const [showAckForAlertId, setShowAckForAlertId] = React.useState<string | null>(null);
 
+  // Expose a global helper so PatientHome can open the login modal without prop drilling
+  useEffect(() => {
+    (window as any).openLoginModal = () => setShowLogin(true);
+    return () => { (window as any).openLoginModal = undefined; };
+  }, []);
+
   return (
     // The main background is now on the body tag in index.html
     <div className="min-h-screen font-sans antialiased text-gray-300"> 
       <div className="absolute top-4 right-4 z-50 flex items-center gap-3">
         {/* Connection status dot */}
         <div className={`w-3 h-3 rounded-full ${realtimeDotClass(state.currentUser)} ${state.devMode ? 'ring-2 ring-yellow-400' : ''}`} title={state.currentUser ? 'Connected' : 'Not connected'} />
-        {/* Demo login/control panel */}
-        <div className="ml-2">
-          <DemoLogin />
-        </div>
+        {/* Use the full LoginPage modal (opened via openLoginModal) for demo login UX */}
         {canShowMasterSwitch && (
           <button
             onClick={handleSwitchView}
@@ -329,6 +338,11 @@ const App: React.FC = () => {
         );
       })()}
       {/* No bannerReminder UI; notifications only fire at exact time */}
+      {showDashboardSelector && (
+        <div style={{ zIndex: 200000 }}>
+          <DashboardSelectorModal onClose={() => setShowDashboardSelector(false)} />
+        </div>
+      )}
       {/* Show in-app persistent banner on Patient view when a reminder is due */}
       {viewMode === ViewMode.PATIENT && (() => {
         const due = state.reminders.find((r: any) => !r.completed && !r.notified && (() => {
