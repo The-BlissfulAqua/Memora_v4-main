@@ -1,0 +1,8 @@
+{
+  "name": "Copy of Copy of v9_Memora: AI Dementia Companion (voice fix?)",
+  "description": "An AI and AR-powered companion app to assist dementia patients. ",
+  "requestFramePermissions": [
+    "camera",
+    "microphone"
+  ]
+}
