@@ -63,12 +63,14 @@ const VoiceRecorder: React.FC<VoiceRecorderProps> = ({ onNewMessage, disabled = 
       if (isCapacitor) {
         try {
           // dynamic import to avoid runtime errors on web
-          // eslint-disable-next-line @typescript-eslint/no-var-requires
-          const { Permissions } = require('@capacitor/core');
-          const res = await Permissions.request({ name: 'microphone' as any });
-          if (res && res.state === 'denied') {
-            alert('Microphone permission denied. Please enable it in system settings.');
-            return;
+          const mod: any = await import('@capacitor/core');
+          const Permissions = mod?.Permissions || mod?.Plugins?.Permissions;
+          if (Permissions && typeof Permissions.request === 'function') {
+            const res = await Permissions.request({ name: 'microphone' as any });
+            if (res && res.state === 'denied') {
+              alert('Microphone permission denied. Please enable it in system settings.');
+              return;
+            }
           }
         } catch (permErr) {
           console.warn('Capacitor permission request failed, attempting browser flow', permErr);
@@ -101,15 +103,39 @@ const VoiceRecorder: React.FC<VoiceRecorderProps> = ({ onNewMessage, disabled = 
 
       mediaRecorder.onstop = () => {
         const audioBlob = new Blob(chunksRef.current, { type: supportedMimeType });
-        
+
         if (audioBlob.size === 0) {
             console.warn("Recording was too short or failed, resulting in an empty audio file.");
         } else {
-            // Use URL.createObjectURL for better performance instead of Base64
-            const audioUrl = URL.createObjectURL(audioBlob);
-            onNewMessage(audioUrl, recordingTime);
+            // Convert to base64 data URL so other clients (and deployments) can
+            // play the audio even when the original blob URL is not available.
+            const reader = new FileReader();
+            reader.onload = () => {
+              const result = reader.result as string | null;
+              if (result) {
+                onNewMessage(result, recordingTime);
+              } else {
+                // Fallback: create an object URL if read fails
+                try {
+                  const audioUrl = URL.createObjectURL(audioBlob);
+                  onNewMessage(audioUrl, recordingTime);
+                } catch (e) {
+                  console.warn('Failed to create audio URL for recorded blob', e);
+                }
+              }
+            };
+            reader.onerror = (e) => {
+              console.warn('Failed to read recorded audio blob as data URL', e);
+              try {
+                const audioUrl = URL.createObjectURL(audioBlob);
+                onNewMessage(audioUrl, recordingTime);
+              } catch (err) {
+                console.warn('Failed to create object URL as fallback', err);
+              }
+            };
+            reader.readAsDataURL(audioBlob);
         }
-        
+
         // Clean up the stream tracks
         stream.getTracks().forEach(track => track.stop());
       };

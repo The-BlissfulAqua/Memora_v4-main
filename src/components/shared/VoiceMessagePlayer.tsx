@@ -187,9 +187,24 @@ const VoiceMessagePlayer: React.FC<VoiceMessagePlayerProps> = ({ message }) => {
     if (audio && message.audioUrl) {
       audio.play().then(() => {
         setIsPlaying(true);
-      }).catch((err) => {
-        console.warn('Audio playback failed, falling back to TTS:', err);
-        // fallback to TTS
+      }).catch(async (err) => {
+        console.warn('Audio playback failed, attempting data URL blob fallback:', err);
+        try {
+          const src = audio.src;
+          if (src && src.startsWith('data:')) {
+            // Convert data URL to blob then to object URL and retry
+            const resp = await fetch(src);
+            const blob = await resp.blob();
+            const objUrl = URL.createObjectURL(blob);
+            audio.src = objUrl;
+            await audio.play();
+            setIsPlaying(true);
+            return;
+          }
+        } catch (e) {
+          console.warn('Data URL blob fallback failed', e);
+        }
+        // fallback to TTS if playback still fails
         speakFallback();
       });
       return;
