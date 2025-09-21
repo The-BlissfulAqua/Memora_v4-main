@@ -44,7 +44,7 @@ const FamilyView: React.FC = () => {
   const [uploadProgress, setUploadProgress] = useState<number | null>(null);
   const [uploadToast, setUploadToast] = useState<string | null>(null);
   const xhrRef = useRef<XMLHttpRequest | null>(null);
-  const [disableResize, setDisableResize] = useState(false);
+  
   const [caption, setCaption] = useState('');
   const [sharedBy, setSharedBy] = useState('');
   const [isSendingQuote, setIsSendingQuote] = useState(false);
@@ -56,7 +56,13 @@ const FamilyView: React.FC = () => {
 
   const handleAddMemory = (e: React.FormEvent) => {
     e.preventDefault();
+    // Prevent submitting local-only previews (blob: or data:) since they won't be accessible to other clients
     if (!imageUrl || !caption || !sharedBy) { alert('Please fill out all memory fields.'); return; }
+    if (imageUrl.startsWith('blob:') || imageUrl.startsWith('data:')) {
+      console.warn('[FamilyView] Attempted to submit a local-only image URL - block until upload returns a public URL', imageUrl);
+      alert('Image is still local-only. Please wait for the upload to complete or disable "Upload original file" to upload the file directly.');
+      return;
+    }
     const newMemory: Memory = { id: new Date().toISOString(), imageUrl, caption, sharedBy };
     dispatch({ type: 'ADD_MEMORY', payload: newMemory });
     setImageUrl(''); setCaption('');
@@ -128,84 +134,41 @@ const FamilyView: React.FC = () => {
                 </button>
               </div>
             </div>
-            <div className="flex items-center gap-3 mt-2">
-              <label className="flex items-center gap-2 text-sm text-slate-400">
-                <input type="checkbox" checked={disableResize} onChange={(e) => setDisableResize(e.target.checked)} className="form-checkbox" />
-                Upload original file (disable client resize)
-              </label>
-            </div>
+            {/* Removed client-side resizing: always upload the original file */}
             <input id="family-image-input" type="file" accept="image/*" className="hidden" onChange={async (e) => {
               const f = e.target.files && e.target.files[0]; if (!f) return;
-              console.debug('[FamilyView] file selected', { name: f.name, size: f.size, type: f.type });
-              // If disableResize is true, upload original file directly
+              console.debug('[FamilyView] file selected (original-only upload)', { name: f.name, size: f.size, type: f.type });
               const demoUrl = (window as any).__DEMO_REALTIME_URL as string | undefined;
-              if (disableResize) {
-                console.debug('[FamilyView] disableResize=true — uploading original file');
-                if (demoUrl) {
-                  try {
-                    const httpBase = demoUrl.replace(/^wss?:\/\//, (m) => (m.startsWith('wss') ? 'https://' : 'http://'));
-                    const uploadEndpoint = `${httpBase.replace(/\/$/, '')}/upload`;
-                    const form = new FormData(); form.append('file', f, f.name);
-                    await new Promise<void>((resolve) => {
-                      const xhr = new XMLHttpRequest(); xhrRef.current = xhr; xhr.open('POST', uploadEndpoint, true);
-                      console.debug('[FamilyView] XHR open ->', uploadEndpoint);
-                      xhr.onload = () => {
-                        console.debug('[FamilyView] XHR onload', xhr.status, xhr.responseText);
-                        xhrRef.current = null;
-                        if (xhr.status >= 200 && xhr.status < 300) {
-                          try { const body = JSON.parse(xhr.responseText || '{}'); setImageUrl(body.url || ''); setUploadToast('Upload complete'); setTimeout(() => setUploadToast(null), 2500); console.debug('[FamilyView] upload success', body); resolve(); }
-                          catch (e) { console.warn('[FamilyView] parse response failed', e); resolve(); }
-                        } else if (xhr.status === 413) { setImageUrl(''); setUploadToast('File too large (max 5MB)'); setTimeout(() => setUploadToast(null), 3000); resolve(); }
-                        else if (xhr.status === 415) { setImageUrl(''); setUploadToast('Unsupported file type'); setTimeout(() => setUploadToast(null), 3000); resolve(); }
-                        else { console.warn('[FamilyView] upload failed status', xhr.status, xhr.responseText); setImageUrl(''); setUploadToast('Upload failed'); setTimeout(() => setUploadToast(null), 2500); resolve(); }
-                      };
-                      xhr.onerror = () => { console.error('[FamilyView] XHR error'); xhrRef.current = null; setImageUrl(''); setUploadToast('Upload error'); setTimeout(() => setUploadToast(null), 2500); resolve(); };
-                      xhr.upload.onprogress = (ev) => { if (ev.lengthComputable) { const p = Math.round((ev.loaded / ev.total) * 100); setUploadProgress(p); console.debug('[FamilyView] upload progress', p); } };
-                      xhr.onloadend = () => { setUploadProgress(null); xhrRef.current = null; };
-                      xhr.send(form);
-                    });
-                    e.currentTarget.value = '';
-                    return;
-                  } catch (uErr) { console.warn('[FamilyView] upload original failed, falling back', uErr); }
-                }
-                // fallback to local object URL preview
-                setImageUrl(URL.createObjectURL(f)); e.currentTarget.value = ''; return;
-              }
-
-              // Default behavior: resize client-side then upload
-              const img = new Image(); const reader = new FileReader();
-              reader.onload = () => { const src = reader.result as string; img.onload = async () => {
+              if (demoUrl) {
                 try {
-                  console.debug('[FamilyView] image loaded for resizing', { width: img.width, height: img.height });
-                  const maxW = 800; const scale = Math.min(1, maxW / img.width);
-                  const canvas = document.createElement('canvas'); canvas.width = Math.round(img.width * scale); canvas.height = Math.round(img.height * scale);
-                  const ctx = canvas.getContext('2d'); if (!ctx) throw new Error('Canvas context unavailable'); ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-                  const resizedDataUrl = canvas.toDataURL('image/jpeg', 0.85);
-                  console.debug('[FamilyView] resized dataURL length', resizedDataUrl.length);
-                  const demoUrl2 = demoUrl;
-                  if (demoUrl2) {
-                    try {
-                      const httpBase = demoUrl2.replace(/^wss?:\/\//, (m) => (m.startsWith('wss') ? 'https://' : 'http://'));
-                      const uploadEndpoint = `${httpBase.replace(/\/$/, '')}/upload`;
-                      const b64 = resizedDataUrl.split(',')[1]; const mimeMatch = resizedDataUrl.match(/^data:(.+);base64,/); const mime = mimeMatch ? mimeMatch[1] : 'image/jpeg';
-                      const binary = atob(b64); const len = binary.length; const u8 = new Uint8Array(len); for (let i = 0; i < len; i++) u8[i] = binary.charCodeAt(i);
-                      const blob = new Blob([u8], { type: mime }); const form = new FormData(); form.append('file', blob, f.name || 'upload.jpg');
-                      console.debug('[FamilyView] starting XHR upload (resized blob)', { blobSize: blob.size, mime });
-                      await new Promise<void>((resolve) => {
-                        const xhr = new XMLHttpRequest(); xhrRef.current = xhr; xhr.open('POST', uploadEndpoint, true);
-                        xhr.onload = () => { console.debug('[FamilyView] XHR onload', xhr.status); xhrRef.current = null; if (xhr.status >= 200 && xhr.status < 300) { try { const body = JSON.parse(xhr.responseText || '{}'); setImageUrl(body.url || resizedDataUrl); setUploadToast('Upload complete'); setTimeout(() => setUploadToast(null), 2500); console.debug('[FamilyView] upload success', body); resolve(); } catch (e) { setImageUrl(resizedDataUrl); resolve(); } } else if (xhr.status === 413) { setImageUrl(''); setUploadToast('File too large (max 5MB)'); setTimeout(() => setUploadToast(null), 3000); resolve(); } else if (xhr.status === 415) { setImageUrl(''); setUploadToast('Unsupported file type'); setTimeout(() => setUploadToast(null), 3000); resolve(); } else { console.warn('[FamilyView] upload failed status', xhr.status, xhr.responseText); setImageUrl(resizedDataUrl); setUploadToast('Upload failed, using local image'); setTimeout(() => setUploadToast(null), 2500); resolve(); } };
-                        xhr.onerror = () => { console.error('[FamilyView] XHR error (resized upload)'); xhrRef.current = null; setImageUrl(resizedDataUrl); setUploadToast('Upload error, using local image'); setTimeout(() => setUploadToast(null), 2500); resolve(); };
-                        xhr.upload.onprogress = (ev) => { if (ev.lengthComputable) { const p = Math.round((ev.loaded / ev.total) * 100); setUploadProgress(p); console.debug('[FamilyView] upload progress', p); } };
-                        xhr.onloadend = () => { setUploadProgress(null); xhrRef.current = null; };
-                        xhr.send(form);
-                      });
-                      return;
-                    } catch (uErr) { console.warn('[FamilyView] Upload failed, falling back to data URL', uErr); }
-                  }
-                  setImageUrl(resizedDataUrl);
-                } catch (err) { console.warn('[FamilyView] Failed to process image', err); alert('Could not process image file.'); }
-              }; img.onerror = (err) => { console.warn('[FamilyView] Image failed to load from file', err); alert('Could not read image file. Please try a different image.'); }; img.src = src; };
-              reader.readAsDataURL(f); e.currentTarget.value = ''; }} />
+                  const httpBase = demoUrl.replace(/^wss?:\/\//, (m) => (m.startsWith('wss') ? 'https://' : 'http://'));
+                  const uploadEndpoint = `${httpBase.replace(/\/$/, '')}/upload`;
+                  const form = new FormData(); form.append('file', f, f.name);
+                  await new Promise<void>((resolve) => {
+                    const xhr = new XMLHttpRequest(); xhrRef.current = xhr; xhr.open('POST', uploadEndpoint, true);
+                    console.debug('[FamilyView] XHR open ->', uploadEndpoint);
+                    xhr.onload = () => {
+                      console.debug('[FamilyView] XHR onload', xhr.status, xhr.responseText);
+                      xhrRef.current = null;
+                      if (xhr.status >= 200 && xhr.status < 300) {
+                        try { const body = JSON.parse(xhr.responseText || '{}'); setImageUrl(body.url || ''); setUploadToast('Upload complete'); setTimeout(() => setUploadToast(null), 2500); console.debug('[FamilyView] upload success', body); resolve(); }
+                        catch (e) { console.warn('[FamilyView] parse response failed', e); resolve(); }
+                      } else if (xhr.status === 413) { setImageUrl(''); setUploadToast('File too large (max 5MB)'); setTimeout(() => setUploadToast(null), 3000); resolve(); }
+                      else if (xhr.status === 415) { setImageUrl(''); setUploadToast('Unsupported file type'); setTimeout(() => setUploadToast(null), 3000); resolve(); }
+                      else { console.warn('[FamilyView] upload failed status', xhr.status, xhr.responseText); setImageUrl(''); setUploadToast('Upload failed'); setTimeout(() => setUploadToast(null), 2500); resolve(); }
+                    };
+                    xhr.onerror = () => { console.error('[FamilyView] XHR error'); xhrRef.current = null; setImageUrl(''); setUploadToast('Upload error'); setTimeout(() => setUploadToast(null), 2500); resolve(); };
+                    xhr.upload.onprogress = (ev) => { if (ev.lengthComputable) { const p = Math.round((ev.loaded / ev.total) * 100); setUploadProgress(p); console.debug('[FamilyView] upload progress', p); } };
+                    xhr.onloadend = () => { setUploadProgress(null); xhrRef.current = null; };
+                    xhr.send(form);
+                  });
+                  try { e.currentTarget.value = ''; } catch (err) { console.debug('[FamilyView] input clear ignored', err); }
+                  return;
+                } catch (uErr) { console.warn('[FamilyView] upload original failed, falling back to local preview', uErr); }
+              }
+              // fallback to local object URL preview if demo URL not configured or upload failed
+              setImageUrl(URL.createObjectURL(f)); try { e.currentTarget.value = ''; } catch (err) { console.debug('[FamilyView] input clear ignored', err); }
+            }} />
           </div>
 
           <div>
