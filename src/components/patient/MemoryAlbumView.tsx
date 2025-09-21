@@ -28,6 +28,20 @@ const RemoteImage: React.FC<{ src: string; alt?: string; className?: string }> =
             const resp = await fetch(url);
             if (!resp.ok) throw new Error('fetch status ' + resp.status);
             const b = await resp.blob();
+            // Diagnostic: log blob details and check magic bytes
+            try {
+                console.debug('[RemoteImage] fetched blob', { size: b.size, type: b.type });
+                const slice = await b.slice(0, 16).arrayBuffer();
+                const bytes = new Uint8Array(slice);
+                const hex = Array.from(bytes).map(x => x.toString(16).padStart(2, '0')).join(' ');
+                console.debug('[RemoteImage] blob head bytes', hex);
+                // Basic signature checks
+                const isPng = bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4e && bytes[3] === 0x47;
+                const isJpg = bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[bytes.length-2] === 0xff;
+                if (!isPng && !isJpg) {
+                    console.warn('[RemoteImage] fetched blob does not look like PNG/JPEG — it may be an HTML error page or different content type');
+                }
+            } catch (diagErr) { console.debug('[RemoteImage] blob diagnostics failed', diagErr); }
             const o = URL.createObjectURL(b);
             setBlobUrl(o);
             setError(null);
