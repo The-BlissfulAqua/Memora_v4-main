@@ -58,13 +58,14 @@ const FamilyView: React.FC = () => {
 
   const handleAddMemory = (e: React.FormEvent) => {
     e.preventDefault();
-    // Prevent submitting local-only previews (blob: or data:) since they won't be accessible to other clients
-    if (!imageUrl || !caption || !sharedBy) { alert('Please fill out all memory fields.'); return; }
-    if (imageUrl.startsWith('blob:') || imageUrl.startsWith('data:')) {
-      console.warn('[FamilyView] Attempted to submit a local-only image URL - block until upload returns a public URL', imageUrl);
-      alert('Image is still local-only. Please wait for the upload to complete or disable "Upload original file" to upload the file directly.');
+    // Prevent submitting until we have a verified public image URL, and require caption/name
+    if (!caption || !sharedBy) { alert('Please fill out your name and a caption before sharing.'); return; }
+    if (!lastUploadName || lastUploadVerified !== true) {
+      console.warn('[FamilyView] Attempted to submit before upload verification', { lastUploadName, lastUploadVerified, imageUrl });
+      alert('Image upload is not yet verified. Please wait until verification completes (green badge) before sharing.');
       return;
     }
+    if (!imageUrl) { alert('No image available to share. Please upload an image first.'); return; }
     const newMemory: Memory = { id: new Date().toISOString(), imageUrl, caption, sharedBy };
     dispatch({ type: 'ADD_MEMORY', payload: newMemory });
     setImageUrl(''); setCaption('');
@@ -228,7 +229,7 @@ const FamilyView: React.FC = () => {
           <UploadProgress progress={uploadProgress} message={uploadToast} onCancel={() => { if (xhrRef.current) { try { xhrRef.current.abort(); } catch (e) {} xhrRef.current = null; setUploadProgress(null); setUploadToast('Upload cancelled'); setTimeout(() => setUploadToast(null), 2000); } }} />
 
           <textarea placeholder="Caption for the memory" value={caption} onChange={e => setCaption(e.target.value)} rows={2} className="w-full px-3 py-2 bg-slate-900/50 border border-slate-700 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:ring-1 focus:ring-slate-500 text-sm"/>
-          <button type="submit" disabled={!sharedBy.trim()} className="w-full px-5 py-2 bg-slate-700 text-white font-semibold rounded-lg shadow-md hover:bg-slate-600 focus:outline-none focus:ring-1 focus:ring-slate-500 text-sm disabled:opacity-50 disabled:cursor-not-allowed">Share Memory</button>
+          <button type="submit" disabled={!sharedBy.trim() || lastUploadVerified !== true} className="w-full px-5 py-2 bg-slate-700 text-white font-semibold rounded-lg shadow-md hover:bg-slate-600 focus:outline-none focus:ring-1 focus:ring-slate-500 text-sm disabled:opacity-50 disabled:cursor-not-allowed">Share Memory</button>
         </form>
       </div>
 
