@@ -236,3 +236,134 @@ npx cap sync
 3. The app contains a JS wrapper at `src/services/localNotifications.ts` which will attempt to use the plugin at runtime. Use `localNotifications.requestPermission()` to prompt the user and `localNotifications.schedule({...})` to schedule reminders.
 3.  Click the **"locate"** link in the notification to open the folder containing your brand new APK file. It's usually found in `android/app/build/outputs/apk/debug/app-debug.apk`.
 4.  You can now transfer this `app-debug.apk` file to your Android phone and install it.
+
+---
+
+## Detailed Capacitor Android build (explicit commands & versions)
+
+This project uses Capacitor v7 (see `package.json`). To avoid version mismatches, use the versions below when installing/upgrading Capacitor or plugins.
+
+- Capacitor core & CLI: `^7.4.3`
+- Capacitor Android: `^7.4.3`
+
+Recommended exact sequence (run from project root):
+
+1) Install dependencies (if not already):
+
+```sh
+npm install
+```
+
+2) (Optional) Ensure Capacitor CLI/core/android versions match the project. If you need to install or re-install them explicitly:
+
+```sh
+# install Capacitor 7 CLI/core/android matching the project's package.json
+npm install --save-dev @capacitor/cli@^7.4.3
+npm install @capacitor/core@^7.4.3 @capacitor/android@^7.4.3
+```
+
+3) Build the web assets (Vite will output them to `dist/`):
+
+```sh
+npm run build
+```
+
+4) Copy/sync the web assets into the Android project and sync plugins
+
+```sh
+npx cap sync android
+```
+
+5) (Optional) If you added the Local Notifications plugin, install & sync it now:
+
+```sh
+npm install @capacitor/local-notifications@^7.0.3
+npx cap sync android
+```
+
+6) Open Android Studio
+
+```sh
+npx cap open android
+```
+
+7) Build an APK (via Android Studio) or from the command line:
+
+Android Studio: Build -> Build Bundle(s) / APK(s) -> Build APK(s)
+
+Command line (from repo root):
+
+```sh
+npx cap copy android
+cd android
+./gradlew assembleDebug
+# built APK: android/app/build/outputs/apk/debug/app-debug.apk
+```
+
+Notes on Local Notifications and runtime permissions
+- After installing `@capacitor/local-notifications`, you must request permission at runtime before scheduling notifications. Example (JS):
+
+```ts
+import { LocalNotifications } from '@capacitor/local-notifications';
+
+async function requestNotificationPermission() {
+    const perm = await LocalNotifications.requestPermissions();
+    return perm;
+}
+
+async function scheduleExample() {
+    await LocalNotifications.schedule({
+        notifications: [
+            {
+                id: 1,
+                title: 'Reminder',
+                body: 'This is a scheduled reminder',
+                schedule: { at: new Date(Date.now() + 5000) }
+            }
+        ]
+    });
+}
+```
+
+AndroidManifest permission snippets (add or ensure present in `android/app/src/main/AndroidManifest.xml`):
+
+```xml
+<!-- Required permissions for camera, microphone, and newer Bluetooth/location flags -->
+<uses-permission android:name="android.permission.INTERNET" />
+<uses-permission android:name="android.permission.CAMERA" />
+<uses-permission android:name="android.permission.RECORD_AUDIO" />
+<uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+<uses-permission android:name="android.permission.BLUETOOTH_SCAN" android:usesPermissionFlags="neverForLocation" />
+<uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
+<uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+```
+
+Runtime permission request examples (call these before using microphone/camera):
+
+Using web APIs (getUserMedia) will trigger a system prompt in the WebView automatically. For a smoother native UX, you can request permissions using Capacitor's `Permissions` (Android) APIs or the individual plugins.
+
+Example: request microphone/camera using the permissions plugin (Capacitor — pseudocode):
+
+```ts
+import { Permissions } from '@capacitor/core';
+
+async function ensureCameraAndMic() {
+    // navigator.mediaDevices.getUserMedia will prompt at runtime; use this to ensure permissions
+    try {
+        await navigator.mediaDevices.getUserMedia({ audio: true, video: true });
+        return true;
+    } catch (e) {
+        console.warn('Permission denied for camera or microphone', e);
+        return false;
+    }
+}
+```
+
+Version compatibility sanity
+- This repo's `package.json` already pins Capacitor packages to `^7.4.3`. When installing plugins, prefer versions compatible with Capacitor v7 (for example, `@capacitor/local-notifications@^7.0.3`). If you use `npm install` with no version, verify plugin versions in `package.json` and run `npx cap doctor` to detect obvious mismatches.
+
+Troubleshooting tips
+- If Android Studio reports Gradle or AndroidX incompatible versions after `npx cap open android`, run `npx cap sync android` again and make sure your Android SDK and Android Studio are up-to-date. If necessary, update Gradle wrapper via Android Studio prompts.
+- If WebView content doesn't show up after installing platforms, ensure `dist/` exists (re-run `npm run build`) and then `npx cap copy android`.
+
+If you'd like, I can add a `build:android` script to `package.json` that runs `npm run build && npx cap sync android` and add a short `README_ANDROID.md` with these exact steps. Tell me if you'd like that added and I'll implement it.

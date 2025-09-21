@@ -162,3 +162,65 @@ npm run print-ngrok
 ```
 
 If you'd like, I can extend the helper to automatically set `window.__DEMO_REALTIME_URL` in the web app by serving a tiny endpoint (requires adding a static script or changing your index.html), or even to attempt to start ngrok automatically (requires your ngrok authtoken and embedding the ngrok npm client). Tell me which option you'd like and I'll implement it.
+
+---
+
+## Building & testing a Capacitor Android APK (short guide)
+
+If you want to run a native build of this web app on Android devices (useful for camera, microphone, and AR features), follow these steps. These commands match the Capacitor version used by this project (v7.x).
+
+1) Make sure you have node/npm and Android Studio installed.
+
+2) Install project dependencies and build the web app:
+
+```sh
+npm install
+npm run build
+```
+
+3) Add and sync the Android platform (if not already present):
+
+```sh
+npx cap add android
+npx cap sync android
+```
+
+4) Optional: install Local Notifications plugin (for reminders inside native app):
+
+```sh
+npm install @capacitor/local-notifications@^7.0.3
+npx cap sync android
+```
+
+5) Open the Android project and build the APK:
+
+```sh
+npx cap open android
+# then in Android Studio: Build -> Build Bundle(s) / APK(s) -> Build APK(s)
+```
+
+6) Or use the command line to assemble a debug APK:
+
+```sh
+npx cap copy android
+cd android
+./gradlew assembleDebug
+# result: android/app/build/outputs/apk/debug/app-debug.apk
+```
+
+AndroidManifest snippets (ensure these permissions exist in `android/app/src/main/AndroidManifest.xml`):
+
+```xml
+<uses-permission android:name="android.permission.INTERNET" />
+<uses-permission android:name="android.permission.CAMERA" />
+<uses-permission android:name="android.permission.RECORD_AUDIO" />
+<uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+<uses-permission android:name="android.permission.BLUETOOTH_SCAN" android:usesPermissionFlags="neverForLocation" />
+<uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
+<uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+```
+
+Notes specific to demo-server usage in native builds
+- When testing with the local `demo-server` behind ngrok, the web view inside the APK must be able to reach the ngrok URL. If you use programmatic verification or fetches that include special headers (we use `ngrok-skip-browser-warning` to avoid free-ngrok HTML interstitials), the demo server already accepts that header, but ensure that any proxies or corporate networks don't strip headers.
+
+If you'd like, I can add a small `build:android` npm script and a short `docs/ANDROID_BUILD.md` that includes one-click commands for CI or local builds.
