@@ -68,7 +68,25 @@ const FamilyView: React.FC = () => {
     if (!imageUrl) { alert('No image available to share. Please upload an image first.'); return; }
     const newMemory: Memory = { id: new Date().toISOString(), imageUrl, caption, sharedBy };
     dispatch({ type: 'ADD_MEMORY', payload: newMemory });
-    setImageUrl(''); setCaption('');
+    // Clear caption and reset upload UI so the form is ready for a second upload
+    setCaption('');
+    clearUpload();
+  };
+
+  const clearUpload = () => {
+    // Revoke any object URL we created locally
+    try {
+      if (imageUrl && imageUrl.startsWith('blob:')) {
+        URL.revokeObjectURL(imageUrl);
+      }
+    } catch (e) { /* ignore */ }
+    setImageUrl('');
+    setLastUploadName(null);
+    setLastUploadVerified(null);
+    setUploadProgress(null);
+    setUploadToast(null);
+    // also clear the file input value if present
+    try { const inp = document.getElementById('family-image-input') as HTMLInputElement | null; if (inp) inp.value = ''; } catch (e) { /* ignore */ }
   };
 
   const handleSendAIQuote = async () => {
@@ -235,6 +253,7 @@ const FamilyView: React.FC = () => {
               <div className="mt-2 flex items-center gap-3 text-xs text-slate-400">
                 <div className="px-2 py-1 bg-slate-800 rounded-lg border border-slate-700">File: {lastUploadName}</div>
                 <div className={`px-2 py-1 rounded-lg ${lastUploadVerified ? 'bg-green-700 border-green-500' : 'bg-yellow-700 border-yellow-500'} border`}>{lastUploadVerified ? 'verified' : 'unverified'}</div>
+                <button type="button" onClick={clearUpload} className="ml-2 px-2 py-1 bg-slate-700 hover:bg-slate-600 text-white rounded-lg text-xs">Clear</button>
               </div>
             )}
           </div>
