@@ -251,9 +251,9 @@ const FamilyView: React.FC = () => {
             )}
             {lastUploadName && (
               <div className="mt-2 flex items-center gap-3 text-xs text-slate-400">
-                <div className="px-2 py-1 bg-slate-800 rounded-lg border border-slate-700">File: {lastUploadName}</div>
+                <div className="max-w-[60%] truncate px-2 py-1 bg-slate-800 rounded-lg border border-slate-700">File: <span className="truncate inline-block max-w-full align-middle">{lastUploadName}</span></div>
                 <div className={`px-2 py-1 rounded-lg ${lastUploadVerified ? 'bg-green-700 border-green-500' : 'bg-yellow-700 border-yellow-500'} border`}>{lastUploadVerified ? 'verified' : 'unverified'}</div>
-                <button type="button" onClick={clearUpload} className="ml-2 px-2 py-1 bg-slate-700 hover:bg-slate-600 text-white rounded-lg text-xs">Clear</button>
+                <button type="button" onClick={clearUpload} title="Clear upload" className="ml-2 w-7 h-7 flex items-center justify-center bg-slate-700 hover:bg-slate-600 text-white rounded-full text-xs">✕</button>
               </div>
             )}
           </div>
