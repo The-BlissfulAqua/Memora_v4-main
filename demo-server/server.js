@@ -18,10 +18,16 @@ app.use((req, res, next) => {
   next();
 });
 
-// Ensure uploads directory exists and serve it statically
+// Ensure uploads directory exists and serve it statically with no-cache headers (demo)
 const uploadsDir = path.join(__dirname, 'uploads');
 if (!fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir, { recursive: true });
-app.use('/uploads', express.static(uploadsDir));
+app.use('/uploads', express.static(uploadsDir, {
+  setHeaders: (res, path) => {
+    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+    res.setHeader('Pragma', 'no-cache');
+    res.setHeader('Expires', '0');
+  }
+}));
 
 // Simple health
 app.get('/health', (req, res) => res.json({ ok: true }));
@@ -83,7 +89,8 @@ const storage = multer.diskStorage({
   },
   filename: function (req, file, cb) {
     const safeName = file.originalname.replace(/[^a-z0-9._-]/gi, '_');
-    cb(null, `${Date.now()}_${safeName}`);
+    const rand = require('crypto').randomBytes(4).toString('hex');
+    cb(null, `${Date.now()}_${rand}_${safeName}`);
   }
 });
 // Limit uploads to 5MB and only allow common image types
@@ -109,9 +116,13 @@ app.post('/upload', (req, res) => {
     try {
       const file = req.file;
       if (!file) return res.status(400).json({ error: 'file required' });
-      const outName = file.filename;
-      const publicUrl = `${req.protocol}://${req.get('host')}/uploads/${outName}`;
-      return res.json({ url: publicUrl });
+  const outName = file.filename;
+  // Respect proxy-forwarded proto/host when available (ngrok, reverse proxies)
+  const proto = (req.headers['x-forwarded-proto'] || req.protocol).toString().split(',')[0];
+  const host = (req.headers['x-forwarded-host'] || req.headers['host'] || req.get('host')).toString().split(',')[0];
+  const publicUrl = `${proto}://${host}/uploads/${outName}`;
+  console.log('[demo-server] uploaded', outName, 'publicUrl=', publicUrl);
+  return res.json({ url: publicUrl });
     } catch (e) {
       console.error('Upload failed', e);
       return res.status(500).json({ error: 'upload failed' });
