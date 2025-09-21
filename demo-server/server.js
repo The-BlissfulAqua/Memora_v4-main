@@ -90,7 +90,9 @@ const storage = multer.diskStorage({
   filename: function (req, file, cb) {
     const safeName = file.originalname.replace(/[^a-z0-9._-]/gi, '_');
     const rand = require('crypto').randomBytes(4).toString('hex');
-    cb(null, `${Date.now()}_${rand}_${safeName}`);
+    const out = `${Date.now()}_${rand}_${safeName}`;
+    console.log(`[demo-server] naming upload: original="${file.originalname}" => "${out}" mime=${file.mimetype}`);
+    cb(null, out);
   }
 });
 // Limit uploads to 5MB and only allow common image types
@@ -100,31 +102,43 @@ const upload = multer({
   storage,
   limits: { fileSize: MAX_FILE_BYTES },
   fileFilter: function (req, file, cb) {
-    if (allowedMimes.includes(file.mimetype)) cb(null, true);
-    else cb(new Error('INVALID_FILE_TYPE'));
+    if (allowedMimes.includes(file.mimetype)) {
+      console.log(`[demo-server] accepting mime=${file.mimetype} for originalname=${file.originalname}`);
+      cb(null, true);
+    } else {
+      console.warn(`[demo-server] rejecting invalid mime=${file.mimetype} for originalname=${file.originalname}`);
+      cb(new Error('INVALID_FILE_TYPE'));
+    }
   }
 });
 
 app.post('/upload', (req, res) => {
+  // wrap multer to add diagnostic logs for the request
+  console.log('[demo-server] POST /upload headers=', JSON.stringify(req.headers));
   upload.single('file')(req, res, (err) => {
     if (err) {
-      console.warn('Upload error', err && err.message);
+      console.warn('[demo-server] Upload error', err && err.message);
       if (err.code === 'LIMIT_FILE_SIZE') return res.status(413).json({ error: 'file too large' });
       if (err.message === 'INVALID_FILE_TYPE') return res.status(415).json({ error: 'invalid file type' });
       return res.status(400).json({ error: 'upload error', detail: err.message });
     }
     try {
       const file = req.file;
-      if (!file) return res.status(400).json({ error: 'file required' });
-  const outName = file.filename;
-  // Respect proxy-forwarded proto/host when available (ngrok, reverse proxies)
-  const proto = (req.headers['x-forwarded-proto'] || req.protocol).toString().split(',')[0];
-  const host = (req.headers['x-forwarded-host'] || req.headers['host'] || req.get('host')).toString().split(',')[0];
-  const publicUrl = `${proto}://${host}/uploads/${outName}`;
-  console.log('[demo-server] uploaded', outName, 'publicUrl=', publicUrl);
-  return res.json({ url: publicUrl });
+      if (!file) {
+        console.warn('[demo-server] no file found on request');
+        return res.status(400).json({ error: 'file required' });
+      }
+      console.log(`[demo-server] received file: field=${file.fieldname} original=${file.originalname} saved=${file.filename} size=${file.size} bytes mime=${file.mimetype}`);
+      const outName = file.filename;
+      // Respect proxy-forwarded proto/host when available (ngrok, reverse proxies)
+      const proto = (req.headers['x-forwarded-proto'] || req.protocol).toString().split(',')[0];
+      const host = (req.headers['x-forwarded-host'] || req.headers['host'] || req.get('host')).toString().split(',')[0];
+      const publicUrl = `${proto}://${host}/uploads/${outName}`;
+      console.log('[demo-server] uploaded', outName, 'publicUrl=', publicUrl);
+      // Include the saved filename in response for easier debugging
+      return res.json({ url: publicUrl, filename: outName, size: file.size, mime: file.mimetype });
     } catch (e) {
-      console.error('Upload failed', e);
+      console.error('[demo-server] Upload failed', e);
       return res.status(500).json({ error: 'upload failed' });
     }
   });
