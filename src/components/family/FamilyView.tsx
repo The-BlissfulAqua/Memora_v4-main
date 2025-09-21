@@ -166,31 +166,43 @@ const FamilyView: React.FC = () => {
                             // record filename and server-side verification if present
                             setLastUploadName(body.filename || null);
                             setLastUploadVerified(typeof body.verified === 'boolean' ? body.verified : null);
-                            // Verify remote URL by attempting to load it in an Image() before broadcasting
-                            const verifier = new Image();
-                            let verified = false;
-                            const verifyTimeout = setTimeout(() => {
-                              if (!verified) {
-                                console.warn('[FamilyView] image verification timed out', remoteUrl);
-                                setImageUrl(''); setUploadToast('Upload succeeded but verification timed out'); setTimeout(() => setUploadToast(null), 3500); resolve();
-                              }
-                            }, 5000);
-                            verifier.onload = () => {
-                              verified = true; clearTimeout(verifyTimeout);
-                              console.debug('[FamilyView] remote image verified', remoteUrl);
+                            // If server already verified the upload, accept it immediately and skip client verification.
+                            if (body.verified === true) {
+                              console.debug('[FamilyView] server reported verified=true, accepting remote URL', remoteUrl);
+                              setLastUploadVerified(true);
                               setImageUrl(remoteUrl);
                               setUploadToast('Upload complete'); setTimeout(() => setUploadToast(null), 2500);
                               resolve();
-                            };
-                            verifier.onerror = (ev) => {
-                              verified = false; clearTimeout(verifyTimeout);
-                              console.error('[FamilyView] remote image verification failed', remoteUrl, ev);
-                              setImageUrl('');
-                              setUploadToast('Upload succeeded but remote image unreachable'); setTimeout(() => setUploadToast(null), 4000);
-                              resolve();
-                            };
-                            // Start verification
-                            verifier.src = remoteUrl + (remoteUrl.includes('?') ? '&' : '?') + 'ts=' + Date.now();
+                            } else {
+                              // Otherwise, attempt client-side verification but do not clear the preview on failure.
+                              const verifier = new Image();
+                              let verified = false;
+                              const verifyTimeout = setTimeout(() => {
+                                if (!verified) {
+                                  console.warn('[FamilyView] image verification timed out', remoteUrl);
+                                  setLastUploadVerified(false);
+                                  setUploadToast('Upload succeeded but verification timed out'); setTimeout(() => setUploadToast(null), 3500); resolve();
+                                }
+                              }, 5000);
+                              verifier.onload = () => {
+                                verified = true; clearTimeout(verifyTimeout);
+                                console.debug('[FamilyView] remote image verified', remoteUrl);
+                                setLastUploadVerified(true);
+                                setImageUrl(remoteUrl);
+                                setUploadToast('Upload complete'); setTimeout(() => setUploadToast(null), 2500);
+                                resolve();
+                              };
+                              verifier.onerror = (ev) => {
+                                verified = false; clearTimeout(verifyTimeout);
+                                console.error('[FamilyView] remote image verification failed', remoteUrl, ev);
+                                // Keep the remote URL visible to the user but mark as unverified so share is disabled
+                                setLastUploadVerified(false);
+                                setUploadToast('Upload succeeded but remote image unreachable (unverified)'); setTimeout(() => setUploadToast(null), 4000);
+                                resolve();
+                              };
+                              // Start verification
+                              verifier.src = remoteUrl + (remoteUrl.includes('?') ? '&' : '?') + 'ts=' + Date.now();
+                            }
                           } catch (e) { console.warn('[FamilyView] parse response failed', e); resolve(); }
                         } else if (xhr.status === 413) { setImageUrl(''); setUploadToast('File too large (max 5MB)'); setTimeout(() => setUploadToast(null), 3000); resolve(); }
                         else if (xhr.status === 415) { setImageUrl(''); setUploadToast('Unsupported file type'); setTimeout(() => setUploadToast(null), 3000); resolve(); }
