@@ -44,6 +44,8 @@ const FamilyView: React.FC = () => {
   const [uploadProgress, setUploadProgress] = useState<number | null>(null);
   const [uploadToast, setUploadToast] = useState<string | null>(null);
   const xhrRef = useRef<XMLHttpRequest | null>(null);
+  const [lastUploadName, setLastUploadName] = useState<string | null>(null);
+  const [lastUploadVerified, setLastUploadVerified] = useState<boolean | null>(null);
   
   const [caption, setCaption] = useState('');
   const [sharedBy, setSharedBy] = useState('');
@@ -148,15 +150,51 @@ const FamilyView: React.FC = () => {
                     const xhr = new XMLHttpRequest(); xhrRef.current = xhr; xhr.open('POST', uploadEndpoint, true);
                     console.debug('[FamilyView] XHR open ->', uploadEndpoint);
                     xhr.onload = () => {
-                      console.debug('[FamilyView] XHR onload', xhr.status, xhr.responseText);
-                      xhrRef.current = null;
-                      if (xhr.status >= 200 && xhr.status < 300) {
-                        try { const body = JSON.parse(xhr.responseText || '{}'); setImageUrl(body.url || ''); setUploadToast('Upload complete'); setTimeout(() => setUploadToast(null), 2500); console.debug('[FamilyView] upload success', body); resolve(); }
-                        catch (e) { console.warn('[FamilyView] parse response failed', e); resolve(); }
-                      } else if (xhr.status === 413) { setImageUrl(''); setUploadToast('File too large (max 5MB)'); setTimeout(() => setUploadToast(null), 3000); resolve(); }
-                      else if (xhr.status === 415) { setImageUrl(''); setUploadToast('Unsupported file type'); setTimeout(() => setUploadToast(null), 3000); resolve(); }
-                      else { console.warn('[FamilyView] upload failed status', xhr.status, xhr.responseText); setImageUrl(''); setUploadToast('Upload failed'); setTimeout(() => setUploadToast(null), 2500); resolve(); }
-                    };
+                        console.debug('[FamilyView] XHR onload', xhr.status, xhr.responseText);
+                        xhrRef.current = null;
+                        if (xhr.status >= 200 && xhr.status < 300) {
+                          try {
+                            const body = JSON.parse(xhr.responseText || '{}');
+                            console.debug('[FamilyView] upload success (server responded)', body);
+                            const remoteUrl = body.url || '';
+                            if (!remoteUrl) {
+                              console.warn('[FamilyView] upload response missing url', body);
+                              setImageUrl(''); setUploadToast('Upload returned no URL'); setTimeout(() => setUploadToast(null), 3000); resolve();
+                              return;
+                            }
+                            // record filename and server-side verification if present
+                            setLastUploadName(body.filename || null);
+                            setLastUploadVerified(typeof body.verified === 'boolean' ? body.verified : null);
+                            // Verify remote URL by attempting to load it in an Image() before broadcasting
+                            const verifier = new Image();
+                            let verified = false;
+                            const verifyTimeout = setTimeout(() => {
+                              if (!verified) {
+                                console.warn('[FamilyView] image verification timed out', remoteUrl);
+                                setImageUrl(''); setUploadToast('Upload succeeded but verification timed out'); setTimeout(() => setUploadToast(null), 3500); resolve();
+                              }
+                            }, 5000);
+                            verifier.onload = () => {
+                              verified = true; clearTimeout(verifyTimeout);
+                              console.debug('[FamilyView] remote image verified', remoteUrl);
+                              setImageUrl(remoteUrl);
+                              setUploadToast('Upload complete'); setTimeout(() => setUploadToast(null), 2500);
+                              resolve();
+                            };
+                            verifier.onerror = (ev) => {
+                              verified = false; clearTimeout(verifyTimeout);
+                              console.error('[FamilyView] remote image verification failed', remoteUrl, ev);
+                              setImageUrl('');
+                              setUploadToast('Upload succeeded but remote image unreachable'); setTimeout(() => setUploadToast(null), 4000);
+                              resolve();
+                            };
+                            // Start verification
+                            verifier.src = remoteUrl + (remoteUrl.includes('?') ? '&' : '?') + 'ts=' + Date.now();
+                          } catch (e) { console.warn('[FamilyView] parse response failed', e); resolve(); }
+                        } else if (xhr.status === 413) { setImageUrl(''); setUploadToast('File too large (max 5MB)'); setTimeout(() => setUploadToast(null), 3000); resolve(); }
+                        else if (xhr.status === 415) { setImageUrl(''); setUploadToast('Unsupported file type'); setTimeout(() => setUploadToast(null), 3000); resolve(); }
+                        else { console.warn('[FamilyView] upload failed status', xhr.status, xhr.responseText); setImageUrl(''); setUploadToast('Upload failed'); setTimeout(() => setUploadToast(null), 2500); resolve(); }
+                      };
                     xhr.onerror = () => { console.error('[FamilyView] XHR error'); xhrRef.current = null; setImageUrl(''); setUploadToast('Upload error'); setTimeout(() => setUploadToast(null), 2500); resolve(); };
                     xhr.upload.onprogress = (ev) => { if (ev.lengthComputable) { const p = Math.round((ev.loaded / ev.total) * 100); setUploadProgress(p); console.debug('[FamilyView] upload progress', p); } };
                     xhr.onloadend = () => { setUploadProgress(null); xhrRef.current = null; };
@@ -178,6 +216,12 @@ const FamilyView: React.FC = () => {
               </div>
             ) : (
               <div className="text-sm text-slate-500">No image chosen yet.</div>
+            )}
+            {lastUploadName && (
+              <div className="mt-2 flex items-center gap-3 text-xs text-slate-400">
+                <div className="px-2 py-1 bg-slate-800 rounded-lg border border-slate-700">File: {lastUploadName}</div>
+                <div className={`px-2 py-1 rounded-lg ${lastUploadVerified ? 'bg-green-700 border-green-500' : 'bg-yellow-700 border-yellow-500'} border`}>{lastUploadVerified ? 'verified' : 'unverified'}</div>
+              </div>
             )}
           </div>
 

@@ -115,7 +115,7 @@ const upload = multer({
 app.post('/upload', (req, res) => {
   // wrap multer to add diagnostic logs for the request
   console.log('[demo-server] POST /upload headers=', JSON.stringify(req.headers));
-  upload.single('file')(req, res, (err) => {
+  upload.single('file')(req, res, async (err) => {
     if (err) {
       console.warn('[demo-server] Upload error', err && err.message);
       if (err.code === 'LIMIT_FILE_SIZE') return res.status(413).json({ error: 'file too large' });
@@ -135,8 +135,32 @@ app.post('/upload', (req, res) => {
       const host = (req.headers['x-forwarded-host'] || req.headers['host'] || req.get('host')).toString().split(',')[0];
       const publicUrl = `${proto}://${host}/uploads/${outName}`;
       console.log('[demo-server] uploaded', outName, 'publicUrl=', publicUrl);
-      // Include the saved filename in response for easier debugging
-      return res.json({ url: publicUrl, filename: outName, size: file.size, mime: file.mimetype });
+      // Perform a quick GET verification to ensure the uploaded file is reachable before returning URL
+      try {
+        const client = publicUrl.startsWith('https:') ? require('https') : require('http');
+        const verifyTimeoutMs = 3000;
+        let verified = false;
+        const verifyPromise = new Promise((resolve) => {
+          const req2 = client.get(publicUrl, { timeout: verifyTimeoutMs }, (resp) => {
+            const status = resp.statusCode || 0;
+            console.log('[demo-server] verification GET status', status, 'for', publicUrl);
+            if (status >= 200 && status < 400) {
+              verified = true;
+            }
+            // consume and ignore body
+            resp.on('data', () => {});
+            resp.on('end', () => resolve(verified));
+          });
+          req2.on('error', (err) => { console.warn('[demo-server] verification GET error', err && err.message); resolve(false); });
+          req2.setTimeout(verifyTimeoutMs, () => { console.warn('[demo-server] verification GET timed out for', publicUrl); req2.abort(); resolve(false); });
+        });
+        const isVerified = await verifyPromise;
+        console.log('[demo-server] verification result for', outName, 'verified=', isVerified);
+        return res.json({ url: publicUrl, filename: outName, size: file.size, mime: file.mimetype, verified: !!isVerified });
+      } catch (verErr) {
+        console.warn('[demo-server] verification failed', verErr && verErr.message);
+        return res.json({ url: publicUrl, filename: outName, size: file.size, mime: file.mimetype, verified: false });
+      }
     } catch (e) {
       console.error('[demo-server] Upload failed', e);
       return res.status(500).json({ error: 'upload failed' });

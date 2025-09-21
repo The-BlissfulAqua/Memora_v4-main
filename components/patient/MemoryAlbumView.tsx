@@ -1,5 +1,47 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { useAppContext } from '../../context/AppContext';
+
+// Small helper to robustly show remote images with loading, error and retry support
+const RemoteImage: React.FC<{ src: string; alt?: string; className?: string }> = ({ src, alt, className }) => {
+    const [loading, setLoading] = useState(true);
+    const [error, setError] = useState<string | null>(null);
+    const [attempt, setAttempt] = useState(0);
+
+    // If src is empty, treat as error
+    if (!src) {
+        return (
+            <div className={`${className} flex items-center justify-center bg-slate-700 text-slate-400`}>
+                <div className="text-sm">No image</div>
+            </div>
+        );
+    }
+
+    const key = `${src}-${attempt}`;
+
+    return (
+        <div className={className}>
+            {loading && !error && (
+                <div className="w-full h-full flex items-center justify-center bg-slate-700 text-slate-400">Loading...</div>
+            )}
+            {error && (
+                <div className="w-full h-full flex flex-col items-center justify-center bg-slate-700 text-slate-400 p-2">
+                    <div className="text-sm mb-2">Image failed to load</div>
+                    <button className="px-3 py-1 bg-slate-600 rounded" onClick={() => { console.debug('[RemoteImage] retrying', src); setError(null); setLoading(true); setAttempt(a => a + 1); }}>Retry</button>
+                </div>
+            )}
+            {!error && (
+                <img
+                    key={key}
+                    src={src}
+                    alt={alt}
+                    className="w-full h-full object-cover"
+                    onLoad={() => { console.debug('[RemoteImage] loaded', src); setLoading(false); setError(null); }}
+                    onError={(e) => { console.error('[RemoteImage] load error', src, e); setError('failed'); setLoading(false); }}
+                />
+            )}
+        </div>
+    );
+};
 
 interface MemoryAlbumViewProps {
     onBack: () => void;
@@ -29,15 +71,15 @@ const MemoryAlbumView: React.FC<MemoryAlbumViewProps> = ({ onBack }) => {
                 </div>
             ) : (
                 <div className="space-y-6 overflow-y-auto pr-2 flex-grow">
-                    {memories.map(memory => (
-                        <div key={memory.id} className="bg-slate-800/50 rounded-xl overflow-hidden shadow-lg border border-slate-700/50">
-                            <img src={memory.imageUrl} alt={memory.caption} className="w-full h-60 object-cover" />
-                            <div className="p-4">
-                                <p className="text-lg text-gray-200 italic">"{memory.caption}"</p>
-                                <p className="text-right text-sm text-slate-400 mt-2">- {memory.sharedBy}</p>
+                        {memories.map(memory => (
+                            <div key={memory.id} className="bg-slate-800/50 rounded-xl overflow-hidden shadow-lg border border-slate-700/50">
+                                <RemoteImage src={memory.imageUrl} alt={memory.caption} className="w-full h-60 object-cover bg-slate-700" />
+                                <div className="p-4">
+                                    <p className="text-lg text-gray-200 italic">"{memory.caption}"</p>
+                                    <p className="text-right text-sm text-slate-400 mt-2">- {memory.sharedBy}</p>
+                                </div>
                             </div>
-                        </div>
-                    ))}
+                        ))}
                 </div>
             )}
         </div>
