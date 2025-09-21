@@ -6,10 +6,40 @@ const RemoteImage: React.FC<{ src: string; alt?: string; className?: string }> =
     const [error, setError] = useState<string | null>(null);
     const [attempt, setAttempt] = useState(0);
     const [showUrl, setShowUrl] = useState(false);
+    const [blobUrl, setBlobUrl] = useState<string | null>(null);
+
+    React.useEffect(() => {
+        // cleanup blobUrl when src changes or on unmount
+        return () => {
+            if (blobUrl) {
+                try { URL.revokeObjectURL(blobUrl); } catch (e) { /* ignore */ }
+            }
+        };
+    }, [blobUrl, src]);
 
     if (!src) return <div className={`${className} flex items-center justify-center bg-slate-700 text-slate-400`}>No image</div>;
 
-    const key = `${src}-${attempt}`;
+    const effectiveSrc = blobUrl || src;
+    const key = `${effectiveSrc}-${attempt}`;
+
+    const tryFetchBlob = async (url: string) => {
+        console.debug('[RemoteImage] trying fetch blob fallback for', url);
+        try {
+            const resp = await fetch(url);
+            if (!resp.ok) throw new Error('fetch status ' + resp.status);
+            const b = await resp.blob();
+            const o = URL.createObjectURL(b);
+            setBlobUrl(o);
+            setError(null);
+            setLoading(false);
+            console.debug('[RemoteImage] fetch blob fallback succeeded', url);
+            return true;
+        } catch (err) {
+            console.warn('[RemoteImage] fetch blob fallback failed', url, err);
+            return false;
+        }
+    };
+
     return (
         <div className={`${className} relative`}> 
             {loading && !error && (<div className="w-full h-full flex items-center justify-center bg-slate-700 text-slate-400">Loading...</div>)}
@@ -17,7 +47,7 @@ const RemoteImage: React.FC<{ src: string; alt?: string; className?: string }> =
                 <div className="w-full h-full flex flex-col items-center justify-center bg-slate-700 text-slate-400 p-2">
                     <div className="text-sm mb-2">Image failed to load</div>
                     <div className="flex gap-2">
-                        <button className="px-3 py-1 bg-slate-600 rounded" onClick={() => { setError(null); setLoading(true); setAttempt(a => a + 1); console.debug('[RemoteImage] retry', src); }}>Retry</button>
+                        <button className="px-3 py-1 bg-slate-600 rounded" onClick={async () => { setError(null); setLoading(true); setAttempt(a => a + 1); console.debug('[RemoteImage] retry', src); const ok = await tryFetchBlob(src); if (!ok) setError('failed'); }}>Retry</button>
                         <button className="px-3 py-1 bg-slate-600 rounded" onClick={() => setShowUrl(s => !s)}>{showUrl ? 'Hide URL' : 'Show URL'}</button>
                     </div>
                     {showUrl && <div className="mt-2 text-xs break-all">{src}</div>}
@@ -26,11 +56,21 @@ const RemoteImage: React.FC<{ src: string; alt?: string; className?: string }> =
             {!error && (
                 <img
                     key={key}
-                    src={src}
+                    src={effectiveSrc}
                     alt={alt}
                     className="w-full h-full object-cover"
-                    onLoad={() => { console.debug('[RemoteImage] loaded', src); setLoading(false); setError(null); }}
-                    onError={(e) => { console.error('[RemoteImage] load error', src, e); setError('failed'); setLoading(false); }}
+                    onLoad={() => { console.debug('[RemoteImage] loaded', effectiveSrc); setLoading(false); setError(null); }}
+                    onError={async (e) => {
+                        console.error('[RemoteImage] load error', effectiveSrc, e);
+                        setLoading(false);
+                        // if we haven't tried fetching as blob yet, try that as a fallback
+                        if (!blobUrl) {
+                            const ok = await tryFetchBlob(src);
+                            if (!ok) setError('failed');
+                        } else {
+                            setError('failed');
+                        }
+                    }}
                 />
             )}
             {!error && (
