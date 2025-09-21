@@ -139,22 +139,63 @@ app.post('/upload', (req, res) => {
       try {
         const client = publicUrl.startsWith('https:') ? require('https') : require('http');
         const verifyTimeoutMs = 3000;
-        let verified = false;
-        const verifyPromise = new Promise((resolve) => {
-          const req2 = client.get(publicUrl, { timeout: verifyTimeoutMs }, (resp) => {
-            const status = resp.statusCode || 0;
-            console.log('[demo-server] verification GET status', status, 'for', publicUrl);
-            if (status >= 200 && status < 400) {
-              verified = true;
+        const maxAttempts = 3;
+
+        async function verifyUrl(url) {
+          const attemptDelay = (n) => new Promise(r => setTimeout(r, 200 * n));
+          for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+            try {
+              console.log('[demo-server] verification attempt', attempt, 'for', url);
+              // try HEAD first to avoid downloading body
+              const headOk = await new Promise((resolve) => {
+                const req = client.request(url, { method: 'HEAD', timeout: verifyTimeoutMs }, (resp) => {
+                  const status = resp.statusCode || 0;
+                  const ct = (resp.headers['content-type'] || '').toString();
+                  console.log('[demo-server] HEAD status', status, 'content-type=', ct);
+                  // consume headers and end
+                  resp.on('data', () => {});
+                  resp.on('end', () => {
+                    if (status >= 200 && status < 400 && ct.startsWith('image/')) resolve(true);
+                    else resolve(false);
+                  });
+                });
+                req.on('error', (err) => { console.warn('[demo-server] HEAD error', err && err.message); resolve(false); });
+                req.setTimeout(verifyTimeoutMs, () => { console.warn('[demo-server] HEAD timed out for', url); req.abort(); resolve(false); });
+                req.end();
+              });
+              if (headOk) return true;
+
+              // If HEAD didn't confirm, try GET and inspect content-type
+              const getOk = await new Promise((resolve) => {
+                const req2 = client.get(url, { timeout: verifyTimeoutMs }, (resp) => {
+                  const status = resp.statusCode || 0;
+                  const ct = (resp.headers['content-type'] || '').toString();
+                  console.log('[demo-server] GET status', status, 'content-type=', ct);
+                  // if content-type looks like an image and status OK, accept
+                  if (status >= 200 && status < 400 && ct.startsWith('image/')) {
+                    // consume body then resolve true
+                    resp.on('data', () => {});
+                    resp.on('end', () => resolve(true));
+                  } else {
+                    // consume body and resolve false
+                    resp.on('data', () => {});
+                    resp.on('end', () => resolve(false));
+                  }
+                });
+                req2.on('error', (err) => { console.warn('[demo-server] GET error', err && err.message); resolve(false); });
+                req2.setTimeout(verifyTimeoutMs, () => { console.warn('[demo-server] GET timed out for', url); req2.abort(); resolve(false); });
+              });
+              if (getOk) return true;
+            } catch (e) {
+              console.warn('[demo-server] verification exception', e && e.message);
             }
-            // consume and ignore body
-            resp.on('data', () => {});
-            resp.on('end', () => resolve(verified));
-          });
-          req2.on('error', (err) => { console.warn('[demo-server] verification GET error', err && err.message); resolve(false); });
-          req2.setTimeout(verifyTimeoutMs, () => { console.warn('[demo-server] verification GET timed out for', publicUrl); req2.abort(); resolve(false); });
-        });
-        const isVerified = await verifyPromise;
+            // backoff before retry
+            await attemptDelay(attempt);
+          }
+          return false;
+        }
+
+        const isVerified = await verifyUrl(publicUrl);
         console.log('[demo-server] verification result for', outName, 'verified=', isVerified);
         return res.json({ url: publicUrl, filename: outName, size: file.size, mime: file.mimetype, verified: !!isVerified });
       } catch (verErr) {
