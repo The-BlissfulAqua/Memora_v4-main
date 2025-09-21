@@ -219,6 +219,13 @@ const AppContext = createContext<{
 export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const [state, dispatch] = useReducer(appReducer, initialState);
   const appliedRemoteActions = useRef(new Set<string>());
+  const latestViewRef = useRef(state.currentView);
+
+  // keep latestViewRef up-to-date so realtime callbacks can decide whether
+  // to apply incoming actions based on the current dashboard view.
+  useEffect(() => {
+    latestViewRef.current = state.currentView;
+  }, [state.currentView]);
 
   useEffect(() => {
     // Always register incoming actions so AppContext can apply remote actions
@@ -229,8 +236,61 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         const rid = action?._remoteId;
         if (rid && appliedRemoteActions.current.has(rid)) return;
         if (rid) appliedRemoteActions.current.add(rid);
-        // Dispatch the remote action locally
-        dispatch(action);
+
+        // Decide whether to apply this remote action locally based on type
+        // and the current dashboard view. This lets the server broadcast
+        // to all clients but have each client selectively apply actions
+        // (e.g., reminders and memories apply only to PATIENT view).
+        const view = latestViewRef.current;
+
+        const applyAction = (act: any) => dispatch(act);
+
+        switch (action?.type) {
+          // UI-only actions: never propagate from remote
+          case 'SET_VIEW_MODE':
+          case 'LOGIN_SUCCESS':
+          case 'SET_DEV_MODE':
+            // ignore
+            break;
+
+          case 'TRIGGER_SOS':
+            // Alerts should be visible to CAREGIVER and FAMILY dashboards
+            if (view === undefined) break;
+            if (view === 'CAREGIVER' || view === 'FAMILY') applyAction(action);
+            break;
+
+          case 'ADD_REMINDER':
+          case 'DELETE_REMINDER':
+          case 'MARK_REMINDER_NOTIFIED':
+          case 'COMPLETE_REMINDER':
+            // Reminder state is shared across all dashboards
+            applyAction(action);
+            break;
+
+          case 'ADD_VOICE_MESSAGE': {
+            // route voice messages based on senderRole
+            const senderRole = action?.payload?.senderRole;
+            if (!senderRole) break;
+            if (senderRole === 'FAMILY' || senderRole === 'CAREGIVER') {
+              // family/caregiver messages -> only patient's dashboard
+              if (view === 'PATIENT') applyAction(action);
+            } else if (senderRole === 'PATIENT') {
+              // patient's messages -> caregiver and family dashboards
+              if (view === 'CAREGIVER' || view === 'FAMILY') applyAction(action);
+            }
+            break;
+          }
+
+          case 'ADD_MEMORY':
+          case 'ADD_QUOTE':
+            // Memories and comforting thoughts from family -> patient only
+            if (view === 'PATIENT') applyAction(action);
+            break;
+
+          default:
+            // Fallback: apply other actions everywhere
+            applyAction(action);
+        }
       } catch (e) {
         console.warn('Error applying remote action', e);
       }
@@ -251,19 +311,46 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
   // Wrap dispatch to optionally forward actions to the realtime server when enabled
   const wrappedDispatch: React.Dispatch<AppActionAll> = (action) => {
+    // Ensure voice messages include senderRole so routing rules work reliably
+    let actToDispatch = action as any;
+    if (action.type === 'ADD_VOICE_MESSAGE') {
+      try {
+        const payload = (action as any).payload || {};
+        if (!payload.senderRole) {
+          // Prefer explicit currentUser.role, otherwise derive from currentView
+          const explicitRole = (state as any).currentUser?.role;
+          const view = (state as any).currentView;
+          let derivedRole = explicitRole;
+          if (!derivedRole && view) {
+            derivedRole = view; // ViewMode values match SenderRole strings
+          }
+          if (!derivedRole) derivedRole = 'FAMILY';
+          const newPayload = { ...payload, senderRole: derivedRole };
+          actToDispatch = { ...action, payload: newPayload };
+        }
+      } catch (e) {
+        console.warn('Failed to derive senderRole for voice message', e);
+      }
+    }
+
     // Forward to realtime server if configured
     const wsUrl = (window as any).__DEMO_REALTIME_URL as string | undefined;
     if (wsUrl && realtimeService) {
       try {
-        // Add a small remote id to help dedupe
-        const actionToSend = { ...action, _remoteId: (action as any)._remoteId || `r-${Date.now()}-${Math.random().toString(36).slice(2,8)}` };
-        realtimeService.sendAction(actionToSend);
+        // Only forward actions that represent shared domain events
+        const doNotForward = new Set(['SET_VIEW_MODE', 'LOGIN_SUCCESS', 'SET_DEV_MODE']);
+        if (!doNotForward.has(actToDispatch.type)) {
+          // Add a small remote id to help dedupe
+          const actionToSend = { ...actToDispatch, _remoteId: (actToDispatch as any)._remoteId || `r-${Date.now()}-${Math.random().toString(36).slice(2,8)}` };
+          realtimeService.sendAction(actionToSend);
+        }
       } catch (e) {
         console.warn('Failed to send action to realtime server', e);
       }
     }
+
     // Apply locally
-    dispatch(action as any);
+    dispatch(actToDispatch as any);
   };
 
   return (

@@ -9,6 +9,7 @@ const LoginPage: React.FC<{ onClose?: () => void }> = ({ onClose }) => {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [wssUrl, setWssUrl] = useState('ws://localhost:8081');
+  const [room, setRoom] = useState('demo');
   const [devMode, setDevMode] = useState(false);
 
   const connect = () => {
@@ -53,7 +54,9 @@ const LoginPage: React.FC<{ onClose?: () => void }> = ({ onClose }) => {
       // determine role mapping for demo server
       const role = username === 'caregiver' ? 'CAREGIVER' : username === 'patient' ? 'PATIENT' : 'FAMILY';
       try {
-        realtimeService.login(username || 'demo', password || 'demo', 'demo', role as any);
+        // persist chosen room globally for other parts of the app
+        (window as any).__DEMO_REALTIME_ROOM = room;
+        realtimeService.login(username || 'demo', password || 'demo', room || 'demo', role as any);
         dispatch({ type: 'LOGIN_SUCCESS', payload: { username, role } });
         dispatch({ type: 'SET_DEV_MODE', payload: devMode });
         setConnecting(false);
@@ -140,6 +143,9 @@ const LoginPage: React.FC<{ onClose?: () => void }> = ({ onClose }) => {
 
           <label className="block text-sm text-slate-300">WSS URL</label>
           <input className="w-full p-2 mb-3 rounded bg-slate-800 border border-slate-700" value={wssUrl} onChange={e => setWssUrl(e.target.value)} />
+
+          <label className="block text-sm text-slate-300">Room</label>
+          <input className="w-full p-2 mb-3 rounded bg-slate-800 border border-slate-700" value={room} onChange={e => setRoom(e.target.value)} />
 
           <div className="flex items-center justify-between">
             <div>
