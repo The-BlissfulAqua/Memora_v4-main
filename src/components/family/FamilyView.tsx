@@ -149,6 +149,7 @@ const FamilyView: React.FC = () => {
                   const form = new FormData(); form.append('file', f, f.name);
                   await new Promise<void>((resolve) => {
                     const xhr = new XMLHttpRequest(); xhrRef.current = xhr; xhr.open('POST', uploadEndpoint, true);
+                    try { xhr.setRequestHeader('ngrok-skip-browser-warning', '1'); } catch (e) { /* ignore if restricted */ }
                     console.debug('[FamilyView] XHR open ->', uploadEndpoint);
                     xhr.onload = () => {
                         console.debug('[FamilyView] XHR onload', xhr.status, xhr.responseText);

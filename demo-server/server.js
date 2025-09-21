@@ -13,7 +13,8 @@ const path = require('path');
 app.use((req, res, next) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET,POST,OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  // Allow the ngrok skip-browser-warning header so free ngrok tunnels don't return the warning HTML
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, ngrok-skip-browser-warning');
   if (req.method === 'OPTIONS') return res.sendStatus(200);
   next();
 });
@@ -148,7 +149,10 @@ app.post('/upload', (req, res) => {
               console.log('[demo-server] verification attempt', attempt, 'for', url);
               // try HEAD first to avoid downloading body
               const headOk = await new Promise((resolve) => {
-                const req = client.request(url, { method: 'HEAD', timeout: verifyTimeoutMs }, (resp) => {
+                // propagate ngrok skip header when present so ngrok won't return its browser warning HTML
+                const extraHeaders = {};
+                if (req.headers['ngrok-skip-browser-warning']) extraHeaders['ngrok-skip-browser-warning'] = req.headers['ngrok-skip-browser-warning'];
+                const req = client.request(url, { method: 'HEAD', timeout: verifyTimeoutMs, headers: extraHeaders }, (resp) => {
                   const status = resp.statusCode || 0;
                   const ct = (resp.headers['content-type'] || '').toString();
                   console.log('[demo-server] HEAD status', status, 'content-type=', ct);
@@ -167,7 +171,7 @@ app.post('/upload', (req, res) => {
 
               // If HEAD didn't confirm, try GET and inspect content-type
               const getOk = await new Promise((resolve) => {
-                const req2 = client.get(url, { timeout: verifyTimeoutMs }, (resp) => {
+                const req2 = client.get(url, { timeout: verifyTimeoutMs, headers: extraHeaders }, (resp) => {
                   const status = resp.statusCode || 0;
                   const ct = (resp.headers['content-type'] || '').toString();
                   console.log('[demo-server] GET status', status, 'content-type=', ct);

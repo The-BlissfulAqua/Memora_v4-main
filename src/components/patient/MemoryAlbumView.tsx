@@ -25,7 +25,8 @@ const RemoteImage: React.FC<{ src: string; alt?: string; className?: string }> =
     const tryFetchBlob = async (url: string) => {
         console.debug('[RemoteImage] trying fetch blob fallback for', url);
         try {
-            const resp = await fetch(url);
+            const headers: any = { 'ngrok-skip-browser-warning': '1' };
+            const resp = await fetch(url, { headers });
             if (!resp.ok) throw new Error('fetch status ' + resp.status);
             const b = await resp.blob();
             // Diagnostic: log blob details and check magic bytes
