@@ -147,15 +147,17 @@ app.post('/upload', (req, res) => {
           for (let attempt = 1; attempt <= maxAttempts; attempt++) {
             try {
               console.log('[demo-server] verification attempt', attempt, 'for', url);
+              // propagate ngrok skip header when present so ngrok won't return its browser warning HTML
+              const extraHeaders = {};
+              if (req.headers['ngrok-skip-browser-warning']) extraHeaders['ngrok-skip-browser-warning'] = req.headers['ngrok-skip-browser-warning'];
+
               // try HEAD first to avoid downloading body
               const headOk = await new Promise((resolve) => {
-                // propagate ngrok skip header when present so ngrok won't return its browser warning HTML
-                const extraHeaders = {};
-                if (req.headers['ngrok-skip-browser-warning']) extraHeaders['ngrok-skip-browser-warning'] = req.headers['ngrok-skip-browser-warning'];
-                const req = client.request(url, { method: 'HEAD', timeout: verifyTimeoutMs, headers: extraHeaders }, (resp) => {
+                const reqHead = client.request(url, { method: 'HEAD', timeout: verifyTimeoutMs, headers: extraHeaders }, (resp) => {
                   const status = resp.statusCode || 0;
                   const ct = (resp.headers['content-type'] || '').toString();
                   console.log('[demo-server] HEAD status', status, 'content-type=', ct);
+                  console.log('[demo-server] HEAD headers', JSON.stringify(resp.headers || {}));
                   // consume headers and end
                   resp.on('data', () => {});
                   resp.on('end', () => {
@@ -163,28 +165,50 @@ app.post('/upload', (req, res) => {
                     else resolve(false);
                   });
                 });
-                req.on('error', (err) => { console.warn('[demo-server] HEAD error', err && err.message); resolve(false); });
-                req.setTimeout(verifyTimeoutMs, () => { console.warn('[demo-server] HEAD timed out for', url); req.abort(); resolve(false); });
-                req.end();
+                reqHead.on('error', (err) => { console.warn('[demo-server] HEAD error', err && err.message); resolve(false); });
+                reqHead.setTimeout(verifyTimeoutMs, () => { console.warn('[demo-server] HEAD timed out for', url); reqHead.abort(); resolve(false); });
+                reqHead.end();
               });
               if (headOk) return true;
 
-              // If HEAD didn't confirm, try GET and inspect content-type
+              // If HEAD didn't confirm, try GET and inspect content-type and a small body snippet for diagnostics
               const getOk = await new Promise((resolve) => {
                 const req2 = client.get(url, { timeout: verifyTimeoutMs, headers: extraHeaders }, (resp) => {
                   const status = resp.statusCode || 0;
                   const ct = (resp.headers['content-type'] || '').toString();
                   console.log('[demo-server] GET status', status, 'content-type=', ct);
-                  // if content-type looks like an image and status OK, accept
+                  console.log('[demo-server] GET headers', JSON.stringify(resp.headers || {}));
+                  // If it's an image and status OK, accept
                   if (status >= 200 && status < 400 && ct.startsWith('image/')) {
-                    // consume body then resolve true
                     resp.on('data', () => {});
                     resp.on('end', () => resolve(true));
-                  } else {
-                    // consume body and resolve false
-                    resp.on('data', () => {});
-                    resp.on('end', () => resolve(false));
+                    return;
                   }
+
+                  // Otherwise capture a small portion of the body for debugging (don't buffer large bodies)
+                  const chunks = [];
+                  let collected = 0;
+                  const MAX_COLLECT = 1024; // 1KB snippet
+                  resp.on('data', (chunk) => {
+                    try {
+                      const buf = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+                      if (collected < MAX_COLLECT) {
+                        const toCollect = Math.min(MAX_COLLECT - collected, buf.length);
+                        chunks.push(buf.slice(0, toCollect));
+                        collected += toCollect;
+                      }
+                    } catch (e) {
+                      // ignore
+                    }
+                  });
+                  resp.on('end', () => {
+                    const bodyBuf = Buffer.concat(chunks);
+                    const asText = bodyBuf.toString('utf8').replace(/\s+/g, ' ').slice(0, 512);
+                    const headHex = bodyBuf.slice(0, 16).toString('hex');
+                    console.warn('[demo-server] GET verification: non-image response body snippet (utf8):', asText);
+                    console.warn('[demo-server] GET verification: non-image head hex:', headHex);
+                    resolve(false);
+                  });
                 });
                 req2.on('error', (err) => { console.warn('[demo-server] GET error', err && err.message); resolve(false); });
                 req2.setTimeout(verifyTimeoutMs, () => { console.warn('[demo-server] GET timed out for', url); req2.abort(); resolve(false); });
